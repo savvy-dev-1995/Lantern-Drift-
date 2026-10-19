@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lantern Drift</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;800&display=swap">
+<style>
+:root{--bg:#0f2a31;--river:#16414a;--paper:#f6efdc;--coral:#ff6b4a;--gold:#ffd86b;--cyan:#7fe3ff;
+color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--paper);font-family:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:manipulation;user-select:none}
+#wrap{position:relative;height:100%;max-height:820px;aspect-ratio:9/15;max-width:100%}
+canvas{width:100%;height:100%;display:block;background:var(--river);touch-action:none}
+#ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;background:rgba(15,42,49,.88)}
+#ov.hide{display:none}
+h1{font-size:2.3rem;font-weight:800;margin:0 0 8px;letter-spacing:-.02em}
+p{margin:0 0 18px;max-width:28ch;line-height:1.45;font-weight:500}
+#ob{display:flex;flex-direction:column;gap:10px;width:100%;max-width:290px;align-items:center}
+button{font:inherit;font-weight:800;font-size:1.1rem;background:var(--coral);color:#2b0d06;border:0;border-radius:999px;padding:14px 34px;cursor:pointer}
+button.opt{background:var(--paper);color:#0f2a31;border-radius:16px;padding:10px 16px;text-align:left;width:100%;font-size:1rem}
+button.opt small{display:block;font-weight:500;font-size:.8rem;opacity:.75}
+button:focus-visible{outline:3px solid var(--gold);outline-offset:3px}
+#fire{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);padding:12px 36px;background:var(--gold);touch-action:manipulation}
+#best{margin-top:14px;font-size:.95rem;opacity:.8}
+</style>
+</head>
+<body>
+<div id="wrap">
+<canvas id="c" width="360" height="600"></canvas>
+<button id="fire" aria-label="Shoot">Fire</button>
+<div id="ov"><h1 id="t"></h1><p id="m"></p><div id="ob"></div><div id="best"></div></div>
+</div>
+<script>
+const cv=document.getElementById("c"),ctx=cv.getContext("2d"),W=360,H=600,N=5,LW=W/N,PY=H-110,BY=100;
+const $=id=>document.getElementById(id);
+const ov=$("ov"),tt=$("t"),mm=$("m"),ob=$("ob"),bestEl=$("best");
+let best=0;try{best=+localStorage.getItem("lantern-best")||0}catch(e){}
+let G,last=0;
+const ABIL=["Lane bolts","Quick dashes","Twin bolts","Rock throws","Triple volleys","Homing bolt","Armor pulses","Quad volleys","Sweeping wave","Rage at half health"];
+const UPS=[
+{n:"Stronger shots",d:"Each bolt does more damage",ok:()=>G.dmg<5,f:()=>G.dmg++},
+{n:"Rapid fire",d:"Shoot noticeably faster",ok:()=>G.rate<4,f:()=>G.rate++},
+{n:"Wide shot",d:"Bolts also fly in the lanes beside you",ok:()=>G.wide<2,f:()=>G.wide++},
+{n:"Shield +2",d:"Absorbs your next two hits",ok:()=>G.shield<3,f:()=>G.shield=Math.min(3,G.shield+2)},
+{n:"Extra life",d:"Adds one life",ok:()=>G.lives<6,f:()=>G.lives++}];
+function showOv(t,m,btns){tt.textContent=t;mm.textContent=m;ob.innerHTML="";
+ btns.forEach(([a,d,fn,c])=>{const b=document.createElement("button");b.className=c||"";b.innerHTML="<b>"+a+"</b>"+(d?"<small>"+d+"</small>":"");b.onclick=fn;ob.appendChild(b)});
+ bestEl.textContent=best?"Best score: "+best:"";ov.classList.remove("hide")}
+function reset(){G={lv:1,score:0,lives:3,shield:0,dmg:1,rate:0,wide:0,lane:2,x:W/2,t:0,flash:0,banner:0,bt:"",items:[],bullets:[],ripples:[],boss:null,lights:0,spawn:1,cd:0,sp:160,state:"title"}}
+function startLevel(){Object.assign(G,{lights:0,items:[],bullets:[],ripples:[],boss:null,spawn:1,banner:1.8,bt:"Level "+G.lv,state:"play"});ov.classList.add("hide")}
+function newGame(){reset();startLevel()}
+const goal=()=>10+2*G.lv, live=()=>G.state==="play"||G.state==="boss";
+function move(d){if(live())G.lane=Math.max(0,Math.min(N-1,G.lane+d))}
+function shoot(){if(!live()||G.cd>0)return;G.cd=.3*Math.pow(.8,G.rate);
+ for(let o=-G.wide;o<=G.wide;o++){const l=G.lane+o;if(l>=0&&l<N)G.bullets.push({l,y:PY-20})}}
+function rip(x,y,c){G.ripples.push({x,y,r:10,c})}
+function hit(){if(G.state==="over")return;
+ if(G.shield>0){G.shield--;rip(G.x,PY,"#7fe3ff")}
+ else{G.lives--;G.flash=.35;rip(G.x,PY,"#ff6b4a");if(G.lives<=0)finish(false)}}
+function finish(win){G.state="over";if(G.score>best){best=G.score;try{localStorage.setItem("lantern-best",best)}catch(e){}}
+ win?showOv("River cleared","All 10 bosses are down. Final score: "+G.score+".",[["Play again","",newGame]])
+    :showOv("Light out","You reached level "+G.lv+" with "+G.score+" points.",[["Drift again","",newGame]])}
+function bossDown(){G.score+=25;rip(G.boss.x,BY,"#ffd86b");G.boss=null;G.items=[];G.bullets=[];
+ if(G.lv===10){finish(true);return}
+ G.state="upgrade";
+ const pool=UPS.filter(u=>u.ok()).sort(()=>Math.random()-.5).slice(0,3);
+ showOv("Level "+G.lv+" cleared","Pick an upgrade for the next stretch of river.",
+  pool.map(u=>[u.n,u.d,()=>{u.f();G.lv++;startLevel()},"opt"]))}
+function update(dt){
+ G.t+=dt;G.banner-=dt;G.flash=Math.max(0,G.flash-dt);G.cd-=dt;
+ G.x+=((G.lane*LW+LW/2)-G.x)*Math.min(1,dt*14);
+ const D=Math.max(0,G.lv-3),sp=G.sp=(150+12*G.lv+30*D)*(1+.25*Math.floor(G.lights/10));
+ if(G.state==="play"){
+  G.spawn-=dt;
+  if(G.spawn<=0){G.spawn=Math.max(.22,.95-sp/700);
+   const l=Math.floor(Math.random()*N),r=Math.random();
+   G.items.push({l,y:-30,k:r<(D?.24:.3)?"f":r<(D?.31:.37)?"s":"r"});
+   if(Math.random()<Math.min(.95,.2+.03*G.lv+.07*D))G.items.push({l:(l+1+Math.floor(Math.random()*(N-1)))%N,y:-60,k:"r"})}
+  if(G.lights>=goal()){const mx=G.lv<4?8+7*G.lv:29+30*D;G.state="boss";G.banner=1.6;G.bt="Boss incoming";
+   G.boss={hp:mx,mx,l:2,x:W/2,t:1.2,fire:1.6,rk:2,sw:5,ph:0}}}
+ const b=G.boss;
+ if(b){b.x+=((b.l*LW+LW/2)-b.x)*Math.min(1,dt*6);
+  b.t-=dt;if(b.t<=0){b.t=G.lv>=2?Math.max(.4,1-.08*G.lv):1.4;b.l=Math.floor(Math.random()*N)}
+  b.fire-=dt;
+  if(G.banner<=0){b.ph+=dt;b.inv=G.lv>=7&&b.ph%3.5>2.6;if(G.lv>=4){b.rk-=dt;if(b.rk<=0){b.rk=1.4;G.items.push({l:Math.floor(Math.random()*N),y:BY+30,k:"r"})}}
+   if(G.lv>=9){b.sw-=dt;if(b.sw<=0){b.sw=6;const s=Math.floor(Math.random()*N);for(let i=0;i<N;i++)if(i!==s)G.items.push({l:i,y:BY+30,k:"b",warn:.6+i*.25})}}}
+  if(b.fire<=0&&G.banner<=0){b.fire=Math.max(.9,2-.1*G.lv)*(G.lv>=10&&b.hp<b.mx/2?.55:1);
+   const n=G.lv>=8?4:G.lv>=5?3:G.lv>=3?2:1;
+   [0,1,2,3,4].sort(()=>Math.random()-.5).slice(0,n).forEach((l,i)=>G.items.push({l,y:BY+30,k:"b",warn:.7,hm:G.lv>=6&&i===0?2:0,hv:G.lv>=6&&i===0?1:0}))}}
+ for(const it of G.items){
+  if(it.warn>0){it.warn-=dt;continue}
+  it.y+=(it.k==="b"?330+10*G.lv+25*D:sp)*dt;if(it.hm>0&&it.l!==G.lane&&(it.ht=(it.ht||0)-dt)<=0){it.ht=.35;it.l+=G.lane>it.l?1:-1;it.hm--}
+  if(!it.done&&Math.abs(it.y-PY)<30&&it.l===G.lane){it.done=true;
+   if(it.k==="f"){G.score++;G.lights++;rip(G.x,PY,"#ffd86b")}
+   else if(it.k==="s"){G.shield=Math.min(3,G.shield+1);rip(G.x,PY,"#7fe3ff")}
+   else hit()}}
+ G.bullets.forEach(q=>q.y-=620*dt);
+ for(const q of G.bullets){
+  if(b&&q.y<BY+25&&Math.abs(q.l*LW+LW/2-b.x)<LW*.6){q.dead=true;if(!b.inv)b.hp-=G.dmg;rip(q.l*LW+LW/2,BY+20,"#f6efdc");if(b.hp<=0){bossDown();return}continue}
+  for(const it of G.items)if(!it.done&&it.k==="r"&&it.l===q.l&&Math.abs(it.y-q.y)<30){it.done=true;q.dead=true;rip(q.l*LW+LW/2,it.y,"#f6efdc");break}}
+ G.bullets=G.bullets.filter(q=>!q.dead&&q.y>-20);
+ G.items=G.items.filter(i=>i.y<H+40&&!i.done);
+ G.ripples.forEach(r=>r.r+=dt*90);G.ripples=G.ripples.filter(r=>r.r<60)}
+function draw(){
+ ctx.fillStyle="#16414a";ctx.fillRect(0,0,W,H);
+ ctx.strokeStyle="rgba(246,239,220,.08)";ctx.lineWidth=2;ctx.setLineDash([14,18]);ctx.lineDashOffset=-(G.t*G.sp)%32;
+ for(let i=1;i<N;i++){ctx.beginPath();ctx.moveTo(i*LW,0);ctx.lineTo(i*LW,H);ctx.stroke()}
+ ctx.setLineDash([]);
+ for(const it of G.items){const cx=it.l*LW+LW/2;
+  if(it.warn>0){ctx.fillStyle="rgba(255,107,74,"+(.14+.1*Math.sin(G.t*30))+")";ctx.fillRect(it.l*LW,0,LW,H);continue}
+  if(it.k==="r"){ctx.fillStyle="#0a1c21";ctx.beginPath();ctx.ellipse(cx,it.y,28,23,0,0,7);ctx.fill();
+   ctx.fillStyle="rgba(246,239,220,.12)";ctx.beginPath();ctx.ellipse(cx-8,it.y-8,11,7,-.4,0,7);ctx.fill()}
+  else if(it.k==="b"){ctx.fillStyle=it.hv?"#c89bff":"#ff6b4a";ctx.beginPath();ctx.ellipse(cx,it.y,7,20,0,0,7);ctx.fill();ctx.fillStyle="#ffe3da";ctx.beginPath();ctx.ellipse(cx,it.y+4,3,10,0,0,7);ctx.fill()}
+  else{const c=it.k==="s"?["#7fe3ff","rgba(127,227,255,0)"]:["#ffd86b","rgba(255,216,107,0)"];
+   const g=ctx.createRadialGradient(cx,it.y,1,cx,it.y,22);g.addColorStop(0,c[0]);g.addColorStop(1,c[1]);
+   ctx.fillStyle=g;ctx.beginPath();ctx.arc(cx,it.y,22,0,7);ctx.fill();
+   if(it.k==="s"){ctx.strokeStyle="#7fe3ff";ctx.lineWidth=3;ctx.beginPath();ctx.arc(cx,it.y,11,0,7);ctx.stroke()}
+   else{ctx.fillStyle="#fff6c9";ctx.beginPath();ctx.arc(cx,it.y,4,0,7);ctx.fill()}}}
+ const b=G.boss;
+ if(b){ctx.fillStyle="hsl("+(G.lv*34)+",45%,26%)";ctx.beginPath();ctx.ellipse(b.x,BY,44,30,0,0,7);ctx.fill();
+  ctx.fillStyle="hsl("+(G.lv*34)+",50%,38%)";ctx.beginPath();ctx.ellipse(b.x,BY-8,34,14,0,0,7);ctx.fill();
+  ctx.fillStyle="#ff6b4a";[-16,16].forEach(o=>{ctx.beginPath();ctx.arc(b.x+o,BY-2,6,0,7);ctx.fill()});
+  if(b.inv){ctx.strokeStyle="#7fe3ff";ctx.lineWidth=4;ctx.beginPath();ctx.ellipse(b.x,BY,48,34,0,0,7);ctx.stroke()}ctx.fillStyle="rgba(0,0,0,.35)";ctx.fillRect(16,68,W-32,8);ctx.fillStyle="#ff6b4a";ctx.fillRect(16,68,(W-32)*Math.max(0,b.hp)/b.mx,8)}
+ ctx.fillStyle="#fff6c9";for(const q of G.bullets){ctx.beginPath();ctx.ellipse(q.l*LW+LW/2,q.y,3,9,0,0,7);ctx.fill()}
+ for(const r of G.ripples){ctx.strokeStyle=r.c;ctx.globalAlpha=1-r.r/60;ctx.lineWidth=3;ctx.beginPath();ctx.arc(r.x,r.y,r.r,0,7);ctx.stroke();ctx.globalAlpha=1}
+ const bob=Math.sin(G.t*4)*2,x=G.x,y=PY+bob;
+ const g=ctx.createRadialGradient(x,y,4,x,y,60);g.addColorStop(0,"rgba(255,107,74,.55)");g.addColorStop(1,"rgba(255,107,74,0)");
+ ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,60,0,7);ctx.fill();
+ ctx.fillStyle=G.flash>0?"#fff":"#f6efdc";ctx.beginPath();ctx.ellipse(x,y,17,22,0,0,7);ctx.fill();
+ ctx.fillStyle="#ff6b4a";ctx.fillRect(x-17,y-3,34,6);
+ ctx.fillStyle="#ffd86b";ctx.beginPath();ctx.arc(x,y+2,6,0,7);ctx.fill();
+ if(G.shield>0){ctx.strokeStyle="#7fe3ff";ctx.lineWidth=3;ctx.globalAlpha=.8;ctx.beginPath();ctx.arc(x,y,31,0,7);ctx.stroke();ctx.globalAlpha=1}
+ if(G.state==="play"){ctx.fillStyle="#ffd86b";ctx.fillRect(0,0,W*Math.min(1,G.lights/goal()),5)}
+ ctx.fillStyle="#f6efdc";ctx.textAlign="left";ctx.font='800 28px "Bricolage Grotesque",system-ui,sans-serif';ctx.fillText(G.score,16,40);
+ ctx.font="500 14px system-ui,sans-serif";ctx.fillText("Level "+G.lv+" · "+(1+.25*Math.floor(G.lights/10)).toFixed(2)+"x",16,58);
+ ctx.textAlign="right";ctx.font="22px system-ui";ctx.fillText("\u25CF".repeat(Math.max(0,G.lives)),W-14,36);
+ ctx.strokeStyle="#7fe3ff";ctx.lineWidth=2.5;for(let i=0;i<G.shield;i++){ctx.beginPath();ctx.arc(W-24-i*22,52,7,0,7);ctx.stroke()}
+ if(G.banner>0&&live()){ctx.globalAlpha=Math.min(1,G.banner);ctx.textAlign="center";ctx.font='800 40px "Bricolage Grotesque",system-ui,sans-serif';ctx.fillText(G.bt,W/2,H/2-40);
+  ctx.font="500 16px system-ui,sans-serif";ctx.fillText(G.state==="play"?"Collect "+goal()+" fireflies"+(G.lv>3?" · Impossible mode":""):"New move: "+ABIL[G.lv-1],W/2,H/2-10);ctx.globalAlpha=1}}
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(live())update(dt);draw();requestAnimationFrame(loop)}
+cv.addEventListener("pointerdown",e=>{const r=cv.getBoundingClientRect();move(e.clientX-r.left<r.width/2?-1:1)});
+$("fire").onpointerdown=e=>{e.preventDefault();shoot()};
+addEventListener("keydown",e=>{if(e.key==="ArrowLeft"||e.key==="a")move(-1);if(e.key==="ArrowRight"||e.key==="d")move(1);if(e.key===" "||e.key==="ArrowUp"){e.preventDefault();shoot()}});
+reset();
+showOv("Lantern Drift","Gather fireflies to wake each level\u2019s boss. Clear all 10 levels. Every boss learns a new move, and from level 4 it gets impossible. Upgrade your gun along the way. Tap left or right to change lanes, Fire to shoot.",[["Start drifting","",newGame]]);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
